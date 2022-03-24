@@ -17,6 +17,8 @@ import DRCS_NSZ_MAPPING from './constants/mapping/drcs-NSZ'
 import ADDITIONAL_SYMBOLS_SET from './constants/mapping/additional-symbols-set'
 import { PathElement } from './constants/mapping/additional-symbols-glyph'
 
+import { PLTE, tRNS } from './constants/bitmap'
+
 import CRC16 from './utils/crc16-ccitt'
 import SparkMD5 from 'spark-md5'
 
@@ -34,6 +36,14 @@ type Region = {
   length: number
   used: boolean
   font?: string,
+}
+
+type Bitmap = {
+  x: number
+  y: number
+  width: number
+  height: number
+  content: string
 }
 
 interface ProviderOption {
@@ -118,6 +128,8 @@ export default class CanvasProvider {
 
   private regions: Region[] = []
   private style_changed = true
+
+  private bitmaps: Bitmap[] = []
 
   private startTime: number
   private timeElapsed: number = 0
@@ -268,6 +280,8 @@ export default class CanvasProvider {
         this.parseDRCS(1, data_unit + 5, data_unit + 5 + data_unit_size)
       }else if (data_unit_parameter == 0x31) {
         this.parseDRCS(2, data_unit + 5, data_unit + 5 + data_unit_size)
+      } else if (data_unit_parameter == 0x35) {
+        this.parseBitmap(data_unit + 5, data_unit + 5 + data_unit_size)
       }
 
       data_unit += 5 + data_unit_size
@@ -290,6 +304,16 @@ export default class CanvasProvider {
 
         foreign.appendChild(style)
         this.svg.appendChild(foreign)
+      }
+
+      for (const bitmap of this.bitmaps) {
+        const image = document.createElementNS('http://www.w3.org/2000/svg', 'image')
+        image.setAttribute('href', bitmap.content)
+        image.setAttribute('x', bitmap.x.toString())
+        image.setAttribute('y', bitmap.y.toString())
+        image.setAttribute('width', bitmap.width.toString())
+        image.setAttribute('height', bitmap.height.toString())
+        this.svg.appendChild(image)
       }
 
       const small = this.regions.filter((region) => region.text_type === 'SSZ');
@@ -974,6 +998,36 @@ export default class CanvasProvider {
         }
       }
     }
+  }
+
+  private parseBitmap(begin: number, end: number) {
+    const x_position = (this.pes[begin + 0] << 8) | this.pes[begin + 1]
+    begin += 2
+    const y_position = (this.pes[begin + 0] << 8) | this.pes[begin + 1]
+    begin += 2
+    const number_of_flc_colors = this.pes[begin + 0]
+    begin += 1
+    begin += number_of_flc_colors
+    const pngHeaderSize = 8 /* PNG signature */ + 4 /* length */ + 4 /* 'IHDR' */ + 13 /* IHDR */ + 4 /* CRC */;
+    if (begin + pngHeaderSize > end) {
+      return
+    }
+    const pngData = new Uint8Array(end - begin + PLTE.length + tRNS.length)
+    const IHDR = this.pes.subarray(begin, begin + pngHeaderSize)
+    const IDAT = this.pes.subarray(begin + pngHeaderSize, end)
+    pngData.set(IHDR, 0)
+    pngData.set(PLTE, pngHeaderSize)
+    pngData.set(tRNS, pngHeaderSize + PLTE.length)
+    pngData.set(IDAT, pngHeaderSize + PLTE.length + tRNS.length)
+    const width = (IHDR[8 + 8 + 0] << 24) | (IHDR[8 + 8 + 1] << 16) | (IHDR[8 + 8 + 2] << 8) | IHDR[8 + 8 + 3]
+    const height = (IHDR[8 + 12 + 0] << 24) | (IHDR[8 + 12 + 1] << 16) | (IHDR[8 + 12 + 2] << 8) | IHDR[8 + 12 + 3]
+    this.bitmaps.push({
+      x: x_position * SIZE_MAGNIFICATION + this.sdp_x,
+      y: y_position * SIZE_MAGNIFICATION + this.sdp_y,
+      width: width * SIZE_MAGNIFICATION,
+      height: height * SIZE_MAGNIFICATION,
+      content: 'data:image/png;base64,' + window.btoa(String.fromCharCode(...pngData)),
+    })
   }
 
   private renderCharacter(key: number, entry: ALPHABET_ENTRY) {
