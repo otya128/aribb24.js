@@ -366,7 +366,6 @@ export default class CanvasProvider {
 
             while(right.content.firstChild) {
               left.content.appendChild(right.content.firstChild)
-              right.content.removeChild(right.content.firstChild)
               left.length += 1
             }
           }
