@@ -23,6 +23,12 @@ import MD5 from './utils/md5'
 const SIZE_MAGNIFICATION = 2; // 奇数の height 時に SSZ で改行を行う場合があるため、全体をN倍して半分サイズに備える
 let EMBEDDED_GLYPH: Map<string, PathElement> | null = null;
 
+export interface ExperimentalOption {
+  useLine?: boolean,
+  useImage?: boolean,
+  useVectorEffect?: boolean,
+}
+
 export interface ProviderOption {
   svg?: SVGElement,
   data_identifier?: number,
@@ -35,6 +41,7 @@ export interface ProviderOption {
   drcsReplaceMapping?: Record<string, string>,
   keepAspectRatio?: boolean,
   usePUA?: boolean,
+  experimental?: ExperimentalOption,
 }
 
 export interface ProviderResult {
@@ -45,9 +52,9 @@ export interface ProviderResult {
 }
 
 export default class SVGProvider {
+  private experimentalOption?: ExperimentalOption
   private pes: Uint8Array
   private svg: SVGElement | null = null
-  private cells: HTMLTableDataCellElement[][] | null = null;
 
   private GL: number = 0
   private GR: number = 2
@@ -209,7 +216,11 @@ export default class SVGProvider {
   }
 
   public render(option?: ProviderOption): ProviderResult | null {
-    this.svg = option?.svg ?? null
+    if (this.experimentalOption?.useImage && option?.svg != null) {
+      this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    } else {
+      this.svg = option?.svg ?? null
+    }
     // その他オプション類
     this.force_orn = ((typeof option?.forceStrokeColor === 'boolean') ? option?.forceStrokeColor : SVGProvider.getRGBAColorCode(option?.forceStrokeColor)) ?? null
     this.force_bg_color = SVGProvider.getRGBAColorCode(option?.forceBackgroundColor) ?? null
@@ -261,6 +272,18 @@ export default class SVGProvider {
       }
 
       data_unit += 5 + data_unit_size
+    }
+
+    this.svg?.setAttribute('viewBox', `0 0 ${this.swf_x} ${this.swf_y}`)
+
+    if (this.experimentalOption?.useImage && option?.svg != null && this.svg != null) {
+      option.svg.setAttribute('viewBox', `0 0 ${this.swf_x} ${this.swf_y}`)
+      this.svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      const image = document.createElementNS('http://www.w3.org/2000/svg', 'image')
+      image.setAttribute('width', `${this.swf_x}`)
+      image.setAttribute('height', `${this.swf_y}`)
+      image.setAttribute('href', 'data:image/svg+xml,' + encodeURIComponent(this.svg.outerHTML))
+      option.svg.appendChild(image)
     }
 
     return ({
@@ -722,64 +745,6 @@ export default class SVGProvider {
     }
 
     if (this.svg === null) { return; }
-    if (this.cells === null) {
-      this.svg.setAttribute('viewBox', `0 0 ${this.swf_x} ${this.swf_y}`)
-      {
-        const foreign = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-        foreign.setAttribute('x', `${this.sdp_x}`)
-        foreign.setAttribute('y', `${this.sdp_y}`)
-        foreign.setAttribute('width', `${this.sdf_x}`)
-        foreign.setAttribute('height', `${this.sdf_y}`)
-
-        const style = document.createElement('style')
-        style.textContent  = ''
-        style.textContent += `@keyframes flc-0 { from { opacity: 0; } to { opacity: 1; } }`
-        style.textContent += `@keyframes flc-7 { from { opacity: 1; } to { opacity: 0; } }`
-
-        const table = document.createElement('table');
-        table.style.willChange = 'transform';
-        table.style.position = 'absolute';
-        table.style.top = '0px';
-        table.style.left = '0px';
-        table.style.width = '100%';
-        table.style.height = '100%';
-        table.style.boxSizing = 'border-box';
-        table.style.border = 'none';
-        table.style.borderCollapse = 'collapse';
-
-        const cells: HTMLTableDataCellElement[][] = [];
-        for (let y = 0, y_idx = 0; y < this.sdf_y; y += Math.floor((this.ssm_y + this.svs) / 2), y_idx += 1) {
-          const tr = document.createElement('tr');
-          cells.push([]);
-          tr.style.position = 'relative';
-          tr.style.height = `${Math.floor((this.ssm_y + this.svs) / 2)}`;
-          tr.style.width = '100%';
-          tr.style.boxSizing = 'border-box';
-          tr.style.border = 'none';
-
-          for (let x = 0; x < this.sdf_x; x += Math.floor((this.ssm_x + this.shs) / 2)) {
-            const td = document.createElement('td');
-
-            td.style.height = `${Math.floor((this.ssm_y + this.svs) / 2)}`;
-            td.style.width = `${Math.floor((this.ssm_x + this.shs) / 2)}`;
-            td.style.padding = '0px';
-            td.style.boxSizing = 'border-box';
-            td.style.border = 'none';
-
-            tr.appendChild(td);
-            cells[y_idx].push(td);
-          }
-
-          table.appendChild(tr);
-        }
-
-        foreign.appendChild(style)
-        foreign.appendChild(table);
-        this.svg.appendChild(foreign)
-
-        this.cells = cells;
-      }
-    }
 
     if (entry.alphabet !== ALPHABETS.MACRO) {
       this.rendered = true
@@ -993,10 +958,8 @@ export default class SVGProvider {
 
         const outlineWidth = 2
         const outlineHeight = 2
-        canvas.width = width + outlineWidth * 2 / this.text_size_x
-        canvas.height = height + outlineHeight * 2 / this.text_size_y
-        canvas.style.width =  `${this.ssm_x + outlineWidth * 2 / this.text_size_x * SIZE_MAGNIFICATION}px`
-        canvas.style.height = `${this.ssm_y + outlineHeight * 2 / this.text_size_y * SIZE_MAGNIFICATION}px`
+        canvas.width = (width * this.text_size_x + outlineWidth * 2) * SIZE_MAGNIFICATION
+        canvas.height = (height * this.text_size_y + outlineHeight * 2) * SIZE_MAGNIFICATION
 
         const ctx = canvas.getContext('2d')
         if (!ctx) { return; }
@@ -1004,25 +967,25 @@ export default class SVGProvider {
         const orn = this.getOrnColorCode()
         if (orn && (!this.force_orn || this.force_orn === true || this.force_orn !== this.fg_color)) {
           ctx.fillStyle = SVGProvider.getRGBAfromColorCode(orn)
-          for(let dy = -outlineHeight / this.text_size_y; dy <= outlineHeight / this.text_size_y; dy++){
-            for(let dx = -outlineWidth/ this.text_size_x; dx <= outlineWidth / this.text_size_x; dx++){
+          for(let dy = -outlineHeight; dy <= outlineHeight; dy++){
+            for(let dx = -outlineWidth; dx <= outlineWidth; dx++){
+              if (dx === 0 && dy === 0) {
+                continue
+              }
               for(let y = 0; y < height; y++){
                 for(let x = 0; x < width; x++){
-                  let value = 0
                   for(let d = 0; d < depth; d++){
                     const byte = Math.floor(((((y * width) + x) * depth) + d) / 8)
                     const index = 7 - (((((y * width) + x) * depth) + d) % 8)
-                    value *= 2
-                    value += ((drcs[byte] & (1 << index)) >> index)
-                  }
-
-                  if (value > 0) {
-                    ctx.fillRect(
-                      outlineWidth / this.text_size_x + x + dx,
-                      outlineHeight / this.text_size_y + y + dy,
-                      1,
-                      1,
-                    )
+                    if (((drcs[byte] & (1 << index)) >> index)) {
+                      ctx.fillRect(
+                        (outlineWidth + x * this.text_size_x + dx) * SIZE_MAGNIFICATION,
+                        (outlineHeight + y * this.text_size_y + dy) * SIZE_MAGNIFICATION,
+                        SIZE_MAGNIFICATION,
+                        SIZE_MAGNIFICATION,
+                      )
+                      break
+                    }
                   }
                 }
               }
@@ -1043,61 +1006,62 @@ export default class SVGProvider {
 
             if(value > 0){
               ctx.fillRect(
-                outlineWidth / this.text_size_x + x,
-                outlineHeight / this.text_size_y + y,
-                1,
-                1,
+                (outlineWidth + x * this.text_size_x) * SIZE_MAGNIFICATION,
+                (outlineHeight + y * this.text_size_y) * SIZE_MAGNIFICATION,
+                SIZE_MAGNIFICATION * this.text_size_x,
+                SIZE_MAGNIFICATION * this.text_size_y,
               )
             }
           }
         }
-
-        const x_space = Math.floor(this.text_size_x * 2);
-        const y_space = Math.floor(this.text_size_y * 2);
-        const lx = Math.round((this.position_x - this.sdp_x) / (this.ssm_x + this.shs) * 2);
-        const uy = Math.round((this.position_y - this.height() - this.sdp_y) / (this.ssm_y + this.svs) * 2);
-
-        for (let y = 0; y < y_space; y++) {
-          for (let x = 0; x < x_space; x++) {
-            const cell = this.cells[uy + y][lx + x];
-            if (y === 0 && x === 0) {
-              cell.setAttribute('rowspan', `${y_space}`);
-              cell.setAttribute('colspan', `${x_space}`);
-              cell.style.textAlign = `center`;
-              cell.style.verticalAlign = `top`;
-
-              const elem = document.createElement('div');
-
-              elem.appendChild(canvas);
-              elem.style.display = 'flex';
-              elem.style.alignItems = 'center';
-              elem.style.justifyContent = 'middle';
-              elem.style.width = `${this.ssm_x + this.shs}px`
-              elem.style.height = `${this.ssm_y + this.svs}px`
-              elem.style.lineHeight = `${this.height()}px`
-              elem.style.fontSize = `${this.ssm_x}px`;
-              elem.style.transform = `scale(${this.text_size_x}, ${this.text_size_y})`
-              elem.style.transformOrigin = `0 0`
-              elem.style.marginRight = `-${(this.ssm_x + this.shs) - this.width()}px`
-              elem.style.marginBottom = `-${(this.ssm_y + this.svs) - this.height()}px`
-              elem.style.color = SVGProvider.getRGBAfromColorCode(this.fg_color);
-
-
-              cell.style.backgroundColor = SVGProvider.getRGBAfromColorCode(this.force_bg_color ?? this.bg_color);
-              cell.appendChild(elem);
-            } else if (cell.parentNode != null){
-              cell.parentNode.removeChild(cell);
-            }
-          }
-        }
+        this.renderBackground()
+        const image = document.createElementNS('http://www.w3.org/2000/svg', 'image')
+        image.setAttribute('href', canvas.toDataURL())
+        image.setAttribute('x', `${this.position_x + this.shs * this.text_size_x / 2 - outlineWidth * SIZE_MAGNIFICATION}`)
+        image.setAttribute('y' , `${this.position_y + this.svs * this.text_size_y / 2 - this.height() - outlineHeight * SIZE_MAGNIFICATION}`)
+        image.setAttribute('width', `${canvas.width}`)
+        image.setAttribute('height', `${canvas.height}`)
+        this.svg.appendChild(image)
       }
 
       this.move_relative_pos(1, 0)
     }
   }
 
+  private renderBackground() {
+    if (this.experimentalOption?.useLine !== true) {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      rect.setAttribute('fill', `${SVGProvider.getRGBAfromColorCode(this.bg_color)}`)
+      rect.setAttribute('x', `${this.position_x}`);
+      rect.setAttribute('y' , `${this.position_y - this.height()}`);
+      rect.setAttribute('width', `${this.width()}`);
+      rect.setAttribute('height', `${this.height()}`);
+      rect.setAttribute('shape-rendering', `crispEdges`);
+      if (this.experimentalOption?.useVectorEffect) {
+        rect.setAttribute('vector-effect', `non-scaling-stroke`);
+      }
+      this.svg?.appendChild(rect)
+    } else {
+      const x1 = this.position_x;
+      const x2 = this.position_x + this.width();
+      const y1 = this.position_y - this.height();
+      const y2 = this.position_y;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+      line.setAttribute('stroke', `${SVGProvider.getRGBAfromColorCode(this.bg_color)}`)
+      line.setAttribute('x1', `${x1}`);
+      line.setAttribute('x2', `${x2}`);
+      line.setAttribute('y1', `${(y1 + y2) / 2}`);
+      line.setAttribute('y2', `${(y1 + y2) / 2}`);
+      line.setAttribute('stroke-width', `${this.height()}`);
+      line.setAttribute('shape-rendering', `crispEdges`);
+      if (this.experimentalOption.useVectorEffect) {
+        line.setAttribute('vector-effect', `non-scaling-stroke`);
+      }
+      this.svg?.appendChild(line)
+    }
+  }
+
   private renderFont(character: string): void {
-    if (this.cells === null) { return; }
 
     const useGaijiFont = ADDITIONAL_SYMBOLS_SET.has(character)
     const font = useGaijiFont ? this.gaijiFont : this.normalFont;
@@ -1110,67 +1074,33 @@ export default class SVGProvider {
 
     if (useGaijiFont) { character += '\u{fe0e}' }
 
-    const x_space = Math.floor(this.text_size_x * 2);
-    const y_space = Math.floor(this.text_size_y * 2);
-    const lx = Math.round((this.position_x - this.sdp_x) / (this.ssm_x + this.shs) * 2);
-    const uy = Math.round((this.position_y - this.height() - this.sdp_y) / (this.ssm_y + this.svs) * 2);
-
-    for (let y = 0; y < y_space; y++) {
-      for (let x = 0; x < x_space; x++) {
-        const cell = this.cells[uy + y][lx + x];
-        if (y === 0 && x === 0) {
-          cell.setAttribute('rowspan', `${y_space}`);
-          cell.setAttribute('colspan', `${x_space}`);
-          cell.style.textAlign = `center`;
-          cell.style.verticalAlign = `top`;
-
-          const elem = document.createElement('div');
-
-          elem.textContent = character;
-          elem.style.display = 'flex';
-          elem.style.alignItems = 'center';
-          elem.style.justifyContent = 'middle';
-          elem.style.width = `${this.ssm_x + this.shs}px`
-          elem.style.height = `${this.ssm_y + this.svs}px`
-          elem.style.fontFamily = `${font}`
-          elem.style.lineHeight = `${this.height()}px`
-          elem.style.fontSize = `${this.ssm_x}px`;
-          elem.style.transform = `scale(${this.text_size_x}, ${this.text_size_y})`
-          elem.style.transformOrigin = `0 0`
-          elem.style.marginRight = `-${(this.ssm_x + this.shs) - this.width()}px`
-          elem.style.marginBottom = `-${(this.ssm_y + this.svs) - this.height()}px`
-          elem.style.color = SVGProvider.getRGBAfromColorCode(this.fg_color);
-
-          const orn = this.getOrnColorCode()
-          if (orn && (!this.force_orn || this.force_orn === true || this.force_orn !== this.fg_color)) {
-            let shadow = '', first = true
-            for (let dy = -2 * SIZE_MAGNIFICATION; dy <= 2 * SIZE_MAGNIFICATION; dy++) {
-              for (let dx = -2 * SIZE_MAGNIFICATION; dx <= 2 * SIZE_MAGNIFICATION; dx++) {
-                if (dy === 0 && dx === 0) { continue; }
-                shadow += `${!first ? ',' : ''}${dx}px ${dy}px 0 ${SVGProvider.getRGBAfromColorCode(orn)}`
-                first = false
-              }
-            }
-         
-            elem.style.textShadow = shadow
-          }
-
-          cell.style.backgroundColor = SVGProvider.getRGBAfromColorCode(this.force_bg_color ?? this.bg_color);
-          cell.appendChild(elem);
-        } else if (cell.parentNode != null){
-          cell.parentNode.removeChild(cell);
-        }
-      }
+    this.renderBackground();
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+    text.textContent = character
+    text.setAttribute('fill', `${SVGProvider.getRGBAfromColorCode(this.fg_color)}`)
+    text.setAttribute('font-size', `${this.ssm_y}`)
+    text.setAttribute('dominant-baseline', "central")
+    text.setAttribute('x', `${(this.position_x + this.width() / 2) / this.text_size_x}`);
+    text.setAttribute('y' , `${(this.position_y + this.svs * this.text_size_y / 2 - this.height()) / this.text_size_y + this.ssm_y / 2}`);
+    text.setAttribute('transform', `scale(${this.text_size_x} ${this.text_size_y})`)
+    text.setAttribute('font-family', font)
+    text.setAttribute('text-anchor', 'middle')
+    
+    const orn = this.getOrnColorCode()
+    if (orn && (!this.force_orn || this.force_orn === true || this.force_orn !== this.fg_color)) {
+      text.setAttribute('stroke', `${SVGProvider.getRGBAfromColorCode(orn)}`)
+      text.setAttribute('stroke-width', `${4 * 2}`)
+      text.setAttribute('stroke-linejoin', `round`)
+      text.setAttribute('paint-order', `stroke`)
     }
+
+    this.svg?.appendChild(text)
   }
 
   private renderPath(viewBox: [number, number, number, number], path: string): void {
-    if (this.cells === null) { return; }
-
+    this.renderBackground();
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     svg.setAttribute('viewBox', `${viewBox[0]} ${viewBox[1]} ${viewBox[2]} ${viewBox[3]}`)
-    svg.style.width = `${this.ssm_x + this.shs}px`
-    svg.style.height = `${this.ssm_y}px`
 
     const elem = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     elem.setAttribute('d', path);
@@ -1181,49 +1111,19 @@ export default class SVGProvider {
       const width = Math.max((viewBox[2] - viewBox[0]) / this.ssm_x, (viewBox[3] - viewBox[1]) / this.ssm_y) * 4
       elem.setAttribute('stroke', `${SVGProvider.getRGBAfromColorCode(orn)}`)
       elem.setAttribute('stroke-width', `${width}`)
-    } else {
-      elem.setAttribute('stroke', `transparent`)
+      elem.setAttribute('stroke-linejoin', `round`)
+      elem.setAttribute('paint-order', `stroke`)
     }
 
     svg.appendChild(elem)
 
-    const x_space = Math.floor(this.text_size_x * 2);
-    const y_space = Math.floor(this.text_size_y * 2);
-    const lx = Math.round((this.position_x - this.sdp_x) / (this.ssm_x + this.shs) * 2);
-    const uy = Math.round((this.position_y - this.height() - this.sdp_y) / (this.ssm_y + this.svs) * 2);
-
-    for (let y = 0; y < y_space; y++) {
-      for (let x = 0; x < x_space; x++) {
-        const cell = this.cells[uy + y][lx + x];
-        if (y === 0 && x === 0) {
-          cell.setAttribute('rowspan', `${y_space}`);
-          cell.setAttribute('colspan', `${x_space}`);
-          cell.style.textAlign = `center`;
-          cell.style.verticalAlign = `top`;
-
-          const elem = document.createElement('div');
-
-          elem.appendChild(svg);
-          elem.style.display = 'flex';
-          elem.style.alignItems = 'center';
-          elem.style.justifyContent = 'middle';
-          elem.style.width = `${this.ssm_x + this.shs}px`
-          elem.style.height = `${this.ssm_y + this.svs}px`
-          elem.style.lineHeight = `${this.height()}px`
-          elem.style.fontSize = `${this.ssm_x}px`;
-          elem.style.transform = `scale(${this.text_size_x}, ${this.text_size_y})`
-          elem.style.transformOrigin = `0 0`
-          elem.style.marginRight = `-${(this.ssm_x + this.shs) - this.width()}px`
-          elem.style.marginBottom = `-${(this.ssm_y + this.svs) - this.height()}px`
-          elem.style.color = SVGProvider.getRGBAfromColorCode(this.fg_color);
-
-          cell.style.backgroundColor = SVGProvider.getRGBAfromColorCode(this.force_bg_color ?? this.bg_color);
-          cell.appendChild(elem);
-        } else if (cell.parentNode != null){
-          cell.parentNode.removeChild(cell);
-        }
-      }
-    }
+    svg.setAttribute('x', `${this.position_x + this.shs * this.text_size_x / 2}`);
+    svg.setAttribute('y' , `${this.position_y + this.svs * this.text_size_y / 2 - this.height()}`);
+    svg.setAttribute('width', `${this.ssm_x * this.text_size_x}`);
+    svg.setAttribute('height', `${this.ssm_y * this.text_size_y}`);
+    svg.setAttribute('preserveAspectRatio', 'none')
+    svg.setAttribute('overflow', 'visible')
+    this.svg?.appendChild(svg)
   }
 
   private getOrnColorCode(): string | null {
