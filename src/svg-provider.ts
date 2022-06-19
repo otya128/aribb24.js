@@ -48,6 +48,7 @@ export default class SVGProvider {
   private pes: Uint8Array
   private svg: SVGElement | null = null
   private canvas: HTMLCanvasElement | null = null
+  private groups: Map<number, SVGGElement> = new Map()
 
   private GL: number = 0
   private GR: number = 2
@@ -757,22 +758,31 @@ export default class SVGProvider {
       }
       this.rendered = true
 
-      if (this.canvas == null) {
+      if ((this.stl || this.hlc) && this.canvas == null) {
         this.canvas = document.createElement('canvas');
         this.canvas.width = this.swf_x;
         this.canvas.height = this.swf_y;
       }
 
-      const ctx = this.canvas.getContext('2d')
-      if (ctx) {
-        ctx.fillStyle = SVGProvider.getRGBAfromColorCode(this.force_bg_color ?? this.bg_color)
-        ctx.fillRect(
-          this.position_x,
-          (this.position_y - this.height()),
-          this.width(),
-          this.height()
-        )
+      const bg = this.force_bg_color ?? this.bg_color
+      const alpha = SVGProvider.getAlphaFromColorCode(bg)
+      let group = this.groups.get(alpha)
+      if (group == null) {
+        group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+        group.setAttribute('opacity', `${alpha / 255}`)
+        this.groups.set(alpha, group)
+        this.svg.appendChild(group)
+      }
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      rect.setAttribute('x', `${this.position_x - 2}`);
+      rect.setAttribute('y' , `${this.position_y - this.height() - 2}`);
+      rect.setAttribute('width', `${this.width() + 2}`);
+      rect.setAttribute('height', `${this.height() + 2}`);
+      rect.setAttribute('fill', SVGProvider.getRGBfromColorCode(bg))
+      group.appendChild(rect)
 
+      const ctx = this.canvas?.getContext('2d')
+      if (ctx) {
         //HLC
         if(this.hlc & 0b0001){
           ctx.fillStyle = SVGProvider.getRGBAfromColorCode(this.fg_color)
@@ -1212,5 +1222,21 @@ export default class SVGProvider {
     const A = Number.parseInt(color.substring(7, 9), 16);
 
     return `rgba(${R}, ${G}, ${B}, ${A / 255})`;
+  }
+
+  private static getRGBfromColorCode(color: string | undefined): string {
+    if (color == null) { return ''; }
+
+    const R = Number.parseInt(color.substring(1, 3), 16);
+    const G = Number.parseInt(color.substring(3, 5), 16);
+    const B = Number.parseInt(color.substring(5, 7), 16);
+
+    return `rgb(${R}, ${G}, ${B})`;
+  }
+
+  private static getAlphaFromColorCode(color: string): number {
+    const A = Number.parseInt(color.substring(7, 9), 16);
+
+    return A;
   }
 }
