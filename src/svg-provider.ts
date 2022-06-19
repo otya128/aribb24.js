@@ -27,6 +27,7 @@ export interface ExperimentalOption {
   useLine?: boolean,
   useImage?: boolean,
   useVectorEffect?: boolean,
+  useClip?: boolean,
 }
 
 export interface ProviderOption {
@@ -55,6 +56,8 @@ export default class SVGProvider {
   private experimentalOption?: ExperimentalOption
   private pes: Uint8Array
   private svg: SVGElement | null = null
+  private defs?: SVGDefsElement
+  private clipPath?: Map<string, SVGClipPathElement>
 
   private GL: number = 0
   private GR: number = 2
@@ -216,6 +219,7 @@ export default class SVGProvider {
   }
 
   public render(option?: ProviderOption): ProviderResult | null {
+    this.experimentalOption = option?.experimental
     if (this.experimentalOption?.useImage && option?.svg != null) {
       this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     } else {
@@ -250,6 +254,11 @@ export default class SVGProvider {
       while (this.svg.firstChild) {
         this.svg.removeChild(this.svg.firstChild);
       }
+      if (this.experimentalOption?.useClip) {
+        this.defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
+        this.svg.appendChild(this.defs)
+        this.clipPath = new Map()
+      }
     }
 
     const PES_data_packet_header_length = this.pes[2] & 0x0F
@@ -283,7 +292,7 @@ export default class SVGProvider {
       image.setAttribute('width', `${this.swf_x}`)
       image.setAttribute('height', `${this.swf_y}`)
       image.setAttribute('href', 'data:image/svg+xml,' + encodeURIComponent(this.svg.outerHTML))
-      option.svg.appendChild(image)
+      option.svg.replaceChildren(image)
     }
 
     return ({
@@ -1029,7 +1038,33 @@ export default class SVGProvider {
   }
 
   private renderBackground() {
-    if (this.experimentalOption?.useLine !== true) {
+    if (this.experimentalOption?.useClip) {
+      if (this.clipPath == null) {
+        return
+      }
+      let clipPath = this.clipPath.get(this.bg_color)
+      if (clipPath == null) {
+        clipPath = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath')
+        clipPath.id = `bg-${this.bg_color.substring(1)}`
+        this.defs?.appendChild(clipPath)
+        this.clipPath.set(this.bg_color, clipPath)
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+        rect.setAttribute('fill', `${SVGProvider.getRGBAfromColorCode(this.bg_color)}`)
+        rect.setAttribute('x', `${0}`);
+        rect.setAttribute('y' , `${0}`);
+        rect.setAttribute('width', `${this.swf_x}`);
+        rect.setAttribute('height', `${this.swf_y}`);
+        rect.setAttribute('clip-path', `url(#bg-${this.bg_color.substring(1)})`);
+        this.svg?.appendChild(rect)
+      }
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      rect.setAttribute('fill', `${SVGProvider.getRGBAfromColorCode(this.bg_color)}`)
+      rect.setAttribute('x', `${this.position_x}`);
+      rect.setAttribute('y' , `${this.position_y - this.height()}`);
+      rect.setAttribute('width', `${this.width()}`);
+      rect.setAttribute('height', `${this.height()}`);
+      clipPath.appendChild(rect)
+    } else if (this.experimentalOption?.useLine !== true) {
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
       rect.setAttribute('fill', `${SVGProvider.getRGBAfromColorCode(this.bg_color)}`)
       rect.setAttribute('x', `${this.position_x}`);
