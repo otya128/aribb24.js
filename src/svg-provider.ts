@@ -44,11 +44,19 @@ export interface ProviderResult {
   PRA: number | null
 }
 
+interface Line {
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+}
+
 export default class SVGProvider {
   private pes: Uint8Array
   private svg: SVGElement | null = null
-  private canvas: HTMLCanvasElement | null = null
   private groups: Map<number, SVGGElement> = new Map()
+  private verticalLines: Map<string, Line> = new Map()
+  private horizontalLines: Map<string, Line> = new Map()
 
   private GL: number = 0
   private GR: number = 2
@@ -211,7 +219,6 @@ export default class SVGProvider {
 
   public render(option?: ProviderOption): ProviderResult | null {
     this.svg = option?.svg ?? null
-    const image = this.svg ? document.createElementNS('http://www.w3.org/2000/svg', 'image') : null;
     // その他オプション類
     this.force_orn = ((typeof option?.forceStrokeColor === 'boolean') ? option?.forceStrokeColor : SVGProvider.getRGBAColorCode(option?.forceStrokeColor)) ?? null
     this.force_bg_color = SVGProvider.getRGBAColorCode(option?.forceBackgroundColor) ?? null
@@ -241,10 +248,6 @@ export default class SVGProvider {
       while (this.svg.firstChild) {
         this.svg.removeChild(this.svg.firstChild);
       }
-      if (image) {
-        image.style.imageRendering = 'pixelated';
-        this.svg.appendChild(image);
-      }
     }
 
     const PES_data_packet_header_length = this.pes[2] & 0x0F
@@ -269,17 +272,8 @@ export default class SVGProvider {
       data_unit += 5 + data_unit_size
     }
 
-    if (image && this.canvas) {
-      image.setAttribute('href', this.canvas.toDataURL());
-      image.setAttribute('x', '0');
-      image.setAttribute('y', '0');
-      image.setAttribute('width', `${this.swf_x}`);
-      image.setAttribute('height', `${this.swf_y}`);
-    }
-    if (this.canvas) {
-      this.canvas.width = this.canvas.height = 0;
-      this.canvas = null;
-    }
+    this.renderVerticalLines();
+    this.renderHorizontalLines();
 
     return ({
       startTime: this.startTime,
@@ -745,6 +739,62 @@ export default class SVGProvider {
     }
   }
 
+  private addVerticalLine(x: number, y: number, size: number, color: string) {
+    if (this.verticalLines.has(`${x},${y + size},${color}`)) {
+      this.renderVerticalLines();
+    }
+    const line = this.verticalLines.get(`${x},${y},${color}`);
+    if (line != null) {
+      this.verticalLines.delete(`${x},${y},${color}`);
+      this.verticalLines.set(`${x},${y + size},${color}`, { ...line, size: line.size + size });
+    } else {
+      this.verticalLines.set(`${x},${y + size},${color}`, { x, y, size, color });
+    }
+  }
+
+  private renderVerticalLines() {
+    if (this.svg) {
+      for (const line of this.verticalLines.values()) {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+        rect.setAttribute('x', `${line.x}`);
+        rect.setAttribute('y' , `${line.y}`);
+        rect.setAttribute('width', `${SIZE_MAGNIFICATION}`);
+        rect.setAttribute('height', `${line.size}`);
+        rect.setAttribute('fill', SVGProvider.getRGBAfromColorCode(line.color))
+        this.svg.appendChild(rect)
+      }
+    }
+    this.verticalLines.clear();
+  }
+
+  private addHorizontalLine(x: number, y: number, size: number, color: string) {
+    if (this.horizontalLines.has(`${x + size},${y},${color}`)) {
+      this.renderHorizontalLines();
+    }
+    const line = this.horizontalLines.get(`${x},${y},${color}`);
+    if (line != null) {
+      this.horizontalLines.delete(`${x},${y},${color}`);
+      this.horizontalLines.set(`${x + size},${y},${color}`, { ...line, size: line.size + size });
+    } else {
+      this.horizontalLines.set(`${x + size},${y},${color}`, { x, y, size, color });
+    }
+  }
+
+  private renderHorizontalLines() {
+    if (this.svg) {
+      for (const line of this.horizontalLines.values()) {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+        rect.setAttribute('x', `${line.x}`);
+        rect.setAttribute('y' , `${line.y}`);
+        rect.setAttribute('width', `${line.size}`);
+        rect.setAttribute('height', `${SIZE_MAGNIFICATION}`);
+        rect.setAttribute('fill', SVGProvider.getRGBAfromColorCode(line.color))
+        this.svg.appendChild(rect)
+      }
+    }
+    this.horizontalLines.clear();
+  }
+
   private renderCharacter(key: number, entry: ALPHABET_ENTRY) {
     if (this.position_x < 0 || this.position_y < 0){
       this.move_absolute_pos(0, 0)
@@ -757,12 +807,6 @@ export default class SVGProvider {
          this.svg.setAttribute('viewBox', `0 0 ${this.swf_x} ${this.swf_y}`)
       }
       this.rendered = true
-
-      if ((this.stl || this.hlc) && this.canvas == null) {
-        this.canvas = document.createElement('canvas');
-        this.canvas.width = this.swf_x;
-        this.canvas.height = this.swf_y;
-      }
 
       const bg = this.force_bg_color ?? this.bg_color
       const alpha = SVGProvider.getAlphaFromColorCode(bg)
@@ -782,56 +826,47 @@ export default class SVGProvider {
       rect.setAttribute('shape-rendering', `crispEdges`)
       group.appendChild(rect)
 
-      const ctx = this.canvas?.getContext('2d')
-      if (ctx) {
-        //HLC
-        if(this.hlc & 0b0001){
-          ctx.fillStyle = SVGProvider.getRGBAfromColorCode(this.fg_color)
-          ctx.fillRect(
-            this.position_x,
-            (this.position_y - 1),
-            this.width(),
-           1
-          ) 
-        }
-        if(this.hlc & 0b0010){
-          ctx.fillStyle = SVGProvider.getRGBAfromColorCode(this.fg_color)
-          ctx.fillRect(
-            (this.position_x + this.width() - 1),
-            (this.position_y - this.height()),
-            1,
-            this.height()
-          )
-        }
-        if(this.hlc & 0b0100){
-          ctx.fillStyle = SVGProvider.getRGBAfromColorCode(this.fg_color)
-          ctx.fillRect(
-            this.position_x,
-            (this.position_y - this.height()),
-            this.width(),
-            1
-          )
-        }
-        if(this.hlc & 0b1000){
-          ctx.fillStyle = SVGProvider.getRGBAfromColorCode(this.fg_color)
-          ctx.fillRect(
-            this.position_x,
-            (this.position_y - this.height()),
-            1,
-            this.height()
-          )
-        }
-
-        // STL
-        if(this.stl){
-          ctx.fillStyle = SVGProvider.getRGBAfromColorCode(this.fg_color)
-          ctx.fillRect(
-            this.position_x,
-            (this.position_y - 1),
-            this.width(),
-            1
-          )
-        }
+      //HLC
+      if(this.hlc & 0b0001){
+        this.addHorizontalLine(
+          this.position_x,
+          this.position_y - SIZE_MAGNIFICATION,
+          this.width(),
+          this.fg_color
+        )
+      }
+      if(this.hlc & 0b0010){
+        this.addVerticalLine(
+          this.position_x + this.width() - SIZE_MAGNIFICATION,
+          this.position_y - this.height(),
+          this.height(),
+          this.fg_color
+        )
+      }
+      if(this.hlc & 0b0100){
+        this.addHorizontalLine(
+          this.position_x,
+          this.position_y - this.height(),
+          this.width(),
+          this.fg_color
+        )
+      }
+      if(this.hlc & 0b1000){
+        this.addVerticalLine(
+          this.position_x,
+          this.position_y - this.height(),
+          this.height(),
+          this.fg_color
+        )
+      }
+      // STL
+      if(this.stl){
+        this.addHorizontalLine(
+          this.position_x,
+          this.position_y - SIZE_MAGNIFICATION,
+          this.width(),
+          this.fg_color
+        )
       }
     }
 
