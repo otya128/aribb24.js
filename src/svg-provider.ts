@@ -1078,10 +1078,8 @@ export default class SVGProvider {
 
         const outlineWidth = 2
         const outlineHeight = 2
-        canvas.width = width + outlineWidth * 2 / this.text_size_x
-        canvas.height = height + outlineHeight * 2 / this.text_size_y
-        canvas.style.width =  `${this.ssm_x + outlineWidth * 2 / this.text_size_x * SIZE_MAGNIFICATION}px`
-        canvas.style.height = `${this.ssm_y + outlineHeight * 2 / this.text_size_y * SIZE_MAGNIFICATION}px`
+        canvas.width = (width * this.text_size_x + outlineWidth * 2) * SIZE_MAGNIFICATION
+        canvas.height = (height * this.text_size_y + outlineHeight * 2) * SIZE_MAGNIFICATION
 
         const ctx = canvas.getContext('2d')
         if (!ctx) { return; }
@@ -1089,25 +1087,25 @@ export default class SVGProvider {
         const orn = this.getOrnColorCode()
         if (orn && (!this.force_orn || this.force_orn === true || this.force_orn !== this.fg_color)) {
           ctx.fillStyle = SVGProvider.getRGBAfromColorCode(orn)
-          for(let dy = -outlineHeight / this.text_size_y; dy <= outlineHeight / this.text_size_y; dy++){
-            for(let dx = -outlineWidth/ this.text_size_x; dx <= outlineWidth / this.text_size_x; dx++){
+          for(let dy = -outlineHeight; dy <= outlineHeight; dy++){
+            for(let dx = -outlineWidth; dx <= outlineWidth; dx++){
+              if (dx === 0 && dy === 0) {
+                continue
+              }
               for(let y = 0; y < height; y++){
                 for(let x = 0; x < width; x++){
-                  let value = 0
                   for(let d = 0; d < depth; d++){
                     const byte = Math.floor(((((y * width) + x) * depth) + d) / 8)
                     const index = 7 - (((((y * width) + x) * depth) + d) % 8)
-                    value *= 2
-                    value += ((drcs[byte] & (1 << index)) >> index)
-                  }
-
-                  if (value > 0) {
-                    ctx.fillRect(
-                      outlineWidth / this.text_size_x + x + dx,
-                      outlineHeight / this.text_size_y + y + dy,
-                      1,
-                      1,
-                    )
+                    if (drcs[byte] & (1 << index)) {
+                      ctx.fillRect(
+                        (outlineWidth + x * this.text_size_x + dx) * SIZE_MAGNIFICATION,
+                        (outlineHeight + y * this.text_size_y + dy) * SIZE_MAGNIFICATION,
+                        SIZE_MAGNIFICATION,
+                        SIZE_MAGNIFICATION,
+                      )
+                      break
+                    }
                   }
                 }
               }
@@ -1128,10 +1126,10 @@ export default class SVGProvider {
 
             if(value > 0){
               ctx.fillRect(
-                outlineWidth / this.text_size_x + x,
-                outlineHeight / this.text_size_y + y,
-                1,
-                1,
+                (outlineWidth + x * this.text_size_x) * SIZE_MAGNIFICATION,
+                (outlineHeight + y * this.text_size_y) * SIZE_MAGNIFICATION,
+                SIZE_MAGNIFICATION * this.text_size_x,
+                SIZE_MAGNIFICATION * this.text_size_y,
               )
             }
           }
@@ -1139,10 +1137,10 @@ export default class SVGProvider {
 
         const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
         image.setAttribute('href', canvas.toDataURL());
-        image.setAttribute('x', `${this.position_x}`);
-        image.setAttribute('y', `${this.position_y - this.height()}`);
-        image.setAttribute('width', `${this.width()}`);
-        image.setAttribute('height', `${this.height()}`);
+        image.setAttribute('x', `${this.position_x + this.shs * this.text_size_x / 2 - outlineWidth * SIZE_MAGNIFICATION}`);
+        image.setAttribute('y', `${this.position_y + this.svs * this.text_size_y / 2 - this.height() - outlineHeight * SIZE_MAGNIFICATION}`);
+        image.setAttribute('width', `${canvas.width}`);
+        image.setAttribute('height', `${canvas.height}`);
         this.svg.appendChild(image);
       }
 
