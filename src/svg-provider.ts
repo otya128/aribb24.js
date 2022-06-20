@@ -774,11 +774,12 @@ export default class SVGProvider {
         this.svg.appendChild(group)
       }
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-      rect.setAttribute('x', `${this.position_x - 2}`);
-      rect.setAttribute('y' , `${this.position_y - this.height() - 2}`);
-      rect.setAttribute('width', `${this.width() + 2}`);
-      rect.setAttribute('height', `${this.height() + 2}`);
+      rect.setAttribute('x', `${this.position_x}`);
+      rect.setAttribute('y' , `${this.position_y - this.height()}`);
+      rect.setAttribute('width', `${this.width()}`);
+      rect.setAttribute('height', `${this.height()}`);
       rect.setAttribute('fill', SVGProvider.getRGBfromColorCode(bg))
+      rect.setAttribute('shape-rendering', `crispEdges`)
       group.appendChild(rect)
 
       const ctx = this.canvas?.getContext('2d')
